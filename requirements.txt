@@ -1,0 +1,7 @@
+numpy
+scipy
+pandas
+scikit-learn
+Keras>=2.0.0
+tqdm
+

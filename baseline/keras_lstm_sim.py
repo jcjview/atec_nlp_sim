@@ -1,3 +1,10 @@
+"""
+pip install tensorflow
+pip install keras
+pip install numpy
+pip install tqdm
+
+"""
 input_file = "../input/process.csv"
 w2vpath = '../data/baike.128.truncate.glove.txt'
 embedding_matrix_path = './temp.npy'
@@ -14,6 +21,39 @@ embedding_dims = 128
 dr = 0.2
 
 
+from keras import backend as K
+
+def f1_score_metrics(y_true, y_pred):
+    def recall(y_true, y_pred):
+        """Recall metric.
+
+        Only computes a batch-wise average of recall.
+
+        Computes the recall, a metric for multi-label classification of
+        how many relevant items are selected.
+        """
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
+
+    def precision(y_true, y_pred):
+        """Precision metric.
+
+        Only computes a batch-wise average of precision.
+
+        Computes the precision, a metric for multi-label classification of
+        how many selected items are relevant.
+        """
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+
+    precision = precision(y_true, y_pred)
+    recall = recall(y_true, y_pred)
+    return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
+
 def get_model(embedding_matrix,nb_words):
     input1_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
     input2_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
@@ -24,43 +64,12 @@ def get_model(embedding_matrix,nb_words):
     seq_embedding_layer = keras.layers.LSTM(256, activation='tanh',recurrent_dropout=dr)
     seq_embedding = lambda tensor: seq_embedding_layer(words_embedding_layer(tensor))
     merge_layer = keras.layers.multiply([seq_embedding(input1_tensor), seq_embedding(input2_tensor)])
-    dense1_layer = keras.layers.Dense(16, activation='relu')(merge_layer)
+    dense1_layer = keras.layers.Dense(64, activation='relu')(merge_layer)
     ouput_layer = keras.layers.Dense(1, activation='sigmoid')(dense1_layer)
     model = keras.models.Model([input1_tensor, input2_tensor], ouput_layer)
-    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy"])
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy",f1_score_metrics])
     model.summary()
     return model
-
-
-class F1ScoreCallback(Callback):
-    def __init__(self, predict_batch_size=1024, include_on_batch=False):
-        super(F1ScoreCallback, self).__init__()
-        self.predict_batch_size = predict_batch_size
-        self.include_on_batch = include_on_batch
-
-    def on_batch_begin(self, batch, logs={}):
-        pass
-
-    def on_train_begin(self, logs={}):
-        if not ('f1_score' in self.params['metrics']):
-            self.params['metrics'].append('f1_score')
-        if not ('recall' in self.params['metrics']):
-            self.params['metrics'].append('recall')
-
-    def on_batch_end(self, batch, logs={}):
-        pass
-
-    def on_epoch_end(self, epoch, logs={}):
-        logs['f1_score'] = float('0')
-        logs['recall'] = float('0')
-        if (self.validation_data):
-            y_predict = self.model.predict([self.validation_data[0], self.validation_data[1]],
-                                           batch_size=self.predict_batch_size)
-            y_predict = (y_predict > 0.5).astype(int)
-            logs['recall'] = accuracy_score(self.validation_data[2], y_predict)
-            logs['f1_score'] = recall_score(self.validation_data[2], y_predict)
-            print("recall f1_score", logs['recall'], logs['f1_score'])
-
 
 from tqdm import tqdm
 import mmap
@@ -86,11 +95,11 @@ def get_embedding_matrix(word_index, Emed_path, Embed_npy):
     with open(Emed_path, encoding='utf-8') as f:
         for line in tqdm(f, total=file_line):
             values = line.split()
-            if(len(values)<128):
+            if(len(values)<embedding_dims):
                 print(values)
                 continue
-            word = ' '.join(values[:-128])
-            coefs = np.asarray(values[-128:], dtype='float32')
+            word = ' '.join(values[:-embedding_dims])
+            coefs = np.asarray(values[-embedding_dims:], dtype='float32')
             embeddings_index[word] = coefs
     f.close()
 
@@ -153,7 +162,7 @@ for ind_tr, ind_te in skf.split(X_train_q1, y):
     y_train = y[ind_tr]
     y_val = y[ind_te]
     model = get_model(embedding_matrix1,nb_words)
-    early_stopping = EarlyStopping(monitor='val_loss', patience=5, mode='min')
+    early_stopping = EarlyStopping(monitor='val_loss', patience=5, mode='min', verbose=1)
     bst_model_path =kernel_name+'_weight_%d.h5' % count
     model_checkpoint = ModelCheckpoint(bst_model_path, monitor='val_loss', mode='min',
                                        save_best_only=True, verbose=1, save_weights_only=True)
