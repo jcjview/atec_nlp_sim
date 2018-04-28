@@ -18,7 +18,7 @@ def train(x_train1, x_train2, y_train, x_val1, x_val2, y_val, model=TextRNN(), c
         os.makedirs(out_dir)
     # Define Training procedure
     global_step = tf.Variable(0, name="global_step", trainable=False)
-    optimizer = tf.train.AdamOptimizer(1e-3)
+    optimizer = tf.train.GradientDescentOptimizer(1e-3)
     train_step = optimizer.minimize(model.loss)
     grads_and_vars = optimizer.compute_gradients(model.loss)
     train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
@@ -131,7 +131,7 @@ seed = 20180426
 cv_folds = 10
 y=np.reshape(y,[len(y),1])
 from sklearn.model_selection import StratifiedKFold
-mymodel=TextRNN()
+
 skf = StratifiedKFold(n_splits=cv_folds, random_state=seed, shuffle=False)
 pred_oob = np.zeros(shape=(len(y), 1))
 # print(pred_oob.shape)
@@ -143,6 +143,7 @@ for ind_tr, ind_te in skf.split(X_train_q1, y):
     x_val_q2 = X_train_q2[ind_te]
     y_train = y[ind_tr]
     y_val = y[ind_te]
+    # mymodel = TextRNN()
     train(x_train1= x_train_q1, x_train2= x_train_q2,y_train=y_train,
-          x_val1= x_val_q1, x_val2= x_val_q2, y_val=y_val,model=mymodel)
+          x_val1= x_val_q1, x_val2= x_val_q2, y_val=y_val)
     break

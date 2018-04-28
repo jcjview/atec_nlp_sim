@@ -49,24 +49,28 @@ class TextRNN():
             fc = tf.layers.dense(last, self.config.hidden_dim, name='fc1')
             fc = tf.contrib.layers.dropout(fc, self.keep_prob)
             fc = tf.nn.relu(fc)
-            print(fc.get_shape())
+            print('fc',fc.get_shape())
             # 分类器
             lbW = tf.Variable(tf.truncated_normal([self.config.hidden_dim, self.config.num_classes], stddev=0.1), name="lbW")
             b = tf.Variable(tf.constant(0.1, shape=[self.config.num_classes]), name="b")
-            print(lbW.get_shape())
-            print(b.get_shape())
+            print('lbW',lbW.get_shape())
+            print('b',b.get_shape())
             self.scores = tf.nn.xw_plus_b(fc, lbW, b, name="scores")
             self.y_pred_cls = tf.round(self.scores, name="predictions")
             # self.logits = tf.layers.dense(fc, self.config.num_classes, name='fc2')
             # self.y_pred_cls = tf.argmax(tf.nn.softmax(self.logits), 1)  # 预测类别
         with tf.name_scope("optimize"):
             # 损失函数，交叉熵
-            cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.scores,labels=self.input_y)
-            self.loss = tf.reduce_mean(cross_entropy)
-            # self.loss = tf.reduce_mean(-tf.reduce_sum(tf.cast(self.input_y, tf.float32)
-            #                                           * tf.log(tf.cast(self.y_pred_cls, tf.float32)), reduction_indices=1))
+            # cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.scores,labels=self.input_y)
+            # self.loss = tf.reduce_mean(cross_entropy)
+
+            # self.loss = -tf.reduce_sum(tf.cast(self.input_y, tf.float32)
+            #                                           * tf.log(tf.cast(self.y_pred_cls, tf.float32)), reduction_indices=1)
+            print('scores', self.scores)
+            print('input_y', self.input_y)
+            self.loss = tf.losses.sigmoid_cross_entropy(logits=self.scores, multi_class_labels=self.input_y)
             # 优化器
-            self.optim = tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.loss)
+            # self.optim = tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.loss)
 
         with tf.name_scope("accuracy"):
             # 准确率
