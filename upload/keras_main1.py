@@ -1,5 +1,5 @@
-#/usr/bin/env python
-#coding=utf-8
+# /usr/bin/env python
+# coding=utf-8
 input_file = "./train.txt"
 embedding_matrix_path = './temp_no_truncate.npy'
 kernel_name = "bilstm"
@@ -7,9 +7,10 @@ import numpy as np
 import keras
 import sys
 from keras.callbacks import EarlyStopping, ModelCheckpoint
-from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
+# from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
 import jieba
 import codecs
+
 jieba.add_word('花呗')
 jieba.add_word('借呗')
 jieba.add_word('余额宝')
@@ -18,27 +19,31 @@ MAX_TEXT_LENGTH = 50
 MAX_FEATURES = 10000
 embedding_dims = 128
 dr = 0.01
+
+
 def pandas_process(input_train):
     q1 = []
     q2 = []
-    vlabel=[]
-    df={}
+    vlabel = []
+    df = {}
     fin = codecs.open(input_train, 'r', encoding='utf-8')
     fin.readline()
     for line in fin:
-        l, sen1, sen2= line.strip().split('\t')
+        l, sen1, sen2 = line.strip().split('\t')
         q1.append(sen1)
         q2.append(sen2)
         vlabel.append(int(l))
     fin.close()
-    df["question1"]=q1
-    df["question2"]=q2
-    df["label"]=vlabel
+    df["question1"] = q1
+    df["question2"] = q2
+    df["label"] = vlabel
     return df
+
 
 def seg(text):
     seg_list = jieba.cut(text)
     return " ".join(seg_list)
+
 
 def get_model(embedding_matrix, nb_words):
     input1_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
@@ -58,35 +63,34 @@ def get_model(embedding_matrix, nb_words):
     model.summary()
     return model
 
-if __name__ == '__main__':
-    inpath=sys.argv[1]
-    outputpath=sys.argv[2]
-    import pandas as pd
 
+if __name__ == '__main__':
+    inpath = sys.argv[1]
+    outputpath = sys.argv[2]
+    # import pandas as pd
     # input_file = "../input/process.csv"
     # df=pd.read_csv(input_file)
     # question1 = df['question1'].values
     # question2 = df['question2'].values
     # y = df['label'].values
-    df =pandas_process(input_file)
+    df = pandas_process(input_file)
     question1 = df['question1']
     question2 = df['question2']
     y = df['label']
     from keras.preprocessing.sequence import pad_sequences
     from keras.preprocessing.text import Tokenizer
 
-
     # np.savetxt('X_train_q1.out', X_train_q1, delimiter=',')
     # np.savetxt('X_train_q2.out', X_train_q2, delimiter=',')
     # inpath="test1.txt"
     test_data1 = []
     test_data2 = []
-    linenos=[]
+    linenos = []
     fin = codecs.open(inpath, 'r', encoding='utf-8')
     for line in fin:
         lineno, sen1, sen2 = line.strip().split('\t')
-        sen1=seg(sen1)
-        sen2=seg(sen2)
+        sen1 = seg(sen1)
+        sen2 = seg(sen2)
         test_data1.append(sen1)
         test_data2.append(sen2)
         linenos.append(lineno)
@@ -103,63 +107,67 @@ if __name__ == '__main__':
     x_val_q1 = pad_sequences(list_tokenized_question11, maxlen=MAX_TEXT_LENGTH)
     x_val_q2 = pad_sequences(list_tokenized_question22, maxlen=MAX_TEXT_LENGTH)
 
-    for i in range(len(x_val_q1)):
-        t=np.array_equal(X_train_q1[i], x_val_q1[i])
-        if not t:
-            print X_train_q1[i]," | ",x_val_q1[i]
-            print i,question1[i]," | ",test_data1[i]
-        t=np.array_equal(X_train_q2[i], x_val_q2[i])
-        if not t:
-            print X_train_q2[i]," | ", x_val_q2[i]
-            print i,question2[i]," | ",test_data2[i]
+    # for i in range(len(x_val_q1)):
+    #     t=np.array_equal(X_train_q1[i], x_val_q1[i])
+    #     if not t:
+    #         print X_train_q1[i]," | ",x_val_q1[i]
+    #         print i,question1[i]," | ",test_data1[i]
+    #     t=np.array_equal(X_train_q2[i], x_val_q2[i])
+    #     if not t:
+    #         print X_train_q2[i]," | ", x_val_q2[i]
+    #         print i,question2[i]," | ",test_data2[i]
 
     nb_words = min(MAX_FEATURES, len(tokenizer.word_index))
-    print("nb_words", nb_words)
+    # print("nb_words", nb_words)
     embedding_matrix1 = np.load(embedding_matrix_path)
     seed = 20180426
     cv_folds = 10
-    from sklearn.model_selection import StratifiedKFold
+    # from sklearn.model_selection import StratifiedKFold
 
-    skf = StratifiedKFold(n_splits=cv_folds, random_state=seed, shuffle=False)
+    # skf = StratifiedKFold(n_splits=cv_folds, random_state=seed, shuffle=False)
+    y = y[0:len(x_val_q1)]
+    # print x_val_q1.shape
     pred_oob = np.zeros(shape=(len(x_val_q1), 1))
-    y=y[0:len(x_val_q1)]
+    # print pred_oob.shape
     count = 0
-    for ind_tr, ind_te in skf.split(X_train_q1, y):
+    for index in range(cv_folds):
         model = get_model(embedding_matrix1, nb_words)
         early_stopping = EarlyStopping(monitor='val_f1_score_metrics', patience=5, mode='max', verbose=1)
         bst_model_path = kernel_name + '_weight_%d.h5' % count
         model_checkpoint = ModelCheckpoint(bst_model_path, monitor='val_f1_score_metrics', mode='max',
                                            save_best_only=True, verbose=1, save_weights_only=True)
         model.load_weights(bst_model_path)
-        y_predict = model.predict([X_train_q1, X_train_q2], batch_size=256, verbose=1)
-        pred_oob  += y_predict
-        try:
-            y_predict = (y_predict > 0.5).astype(int)
-            recall = recall_score(y, y_predict)
-            print(count, "recall", recall)
-            precision = precision_score(y, y_predict)
-            print(count, "precision", precision)
-            accuracy = accuracy_score(y, y_predict)
-            print(count, "accuracy ", accuracy)
-            f1 = f1_score(y, y_predict)
-            print(count, "f1", f1)
-            count += 1
-        except:
-            pass
+        y_predict = model.predict([x_val_q1, x_val_q2], batch_size=1024, verbose=0)
+        pred_oob += y_predict
+        # break
+        # try:
+        #     y_predict = (y_predict > 0.5).astype(int)
+        #     recall = recall_score(y, y_predict)
+        #     print(count, "recall", recall)
+        #     precision = precision_score(y, y_predict)
+        #     print(count, "precision", precision)
+        #     accuracy = accuracy_score(y, y_predict)
+        #     print(count, "accuracy ", accuracy)
+        #     f1 = f1_score(y, y_predict)
+        #     print(count, "f1", f1)
+        #     count += 1
+        # except:
+        #     pass
+    pred_oob /= cv_folds
     pred_oob1 = (pred_oob > 0.5).astype(int)
-    with open(outputpath, 'w') as fout:
-        for index, la in enumerate(pred_oob1):
-            lineno = linenos[index]
-            fout.write(lineno + '\t%d\n' % la)
-    pred_oob/=cv_folds
-    try:
-        recall = recall_score(y, pred_oob1)
-        print("recal", recall)
-        precision = precision_score(y, pred_oob1)
-        print("precision", precision)
-        accuracy = accuracy_score(y, pred_oob1)
-        print("accuracy", accuracy)
-        f1 = f1_score(y, pred_oob1)
-        print("f1", f1)
-    except:
-        pass
+    fout = codecs.open(outputpath, 'w', encoding='utf-8')
+    for index, la in enumerate(pred_oob1):
+        lineno = linenos[index]
+        fout.write(lineno + '\t%d\n' % la)
+
+            # try:
+            #     recall = recall_score(y, pred_oob1)
+            #     print("recal", recall)
+            #     precision = precision_score(y, pred_oob1)
+            #     print("precision", precision)
+            #     accuracy = accuracy_score(y, pred_oob1)
+            #     print("accuracy", accuracy)
+            #     f1 = f1_score(y, pred_oob1)
+            #     print("f1", f1)
+            # except:
+            #     pass

@@ -1,3 +1,3 @@
 #/bin/bash
 
-python main.py $1 $2
+python keras_main1.py $1 $2
