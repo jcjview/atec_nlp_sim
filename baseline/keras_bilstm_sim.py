@@ -2,6 +2,7 @@ input_file = "../input/process.csv"
 w2vpath = '../data/baike.128.no_truncate.glove.txt'
 embedding_matrix_path = './temp_no_truncate.npy'
 kernel_name = "bilstm"
+word_index_path="worddict.pkl"
 import pandas as pd
 import numpy as np
 import keras
@@ -46,6 +47,33 @@ def f1_score_metrics(y_true, y_pred):
     precision = precision(y_true, y_pred)
     recall = recall(y_true, y_pred)
     return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
+
+
+class F1ScoreCallback(Callback):
+    def __init__(self, predict_batch_size=1024, include_on_batch=False):
+        super(F1ScoreCallback, self).__init__()
+        self.predict_batch_size = predict_batch_size
+        self.include_on_batch = include_on_batch
+
+    def on_batch_begin(self, batch, logs={}):
+        pass
+
+    def on_train_begin(self, logs={}):
+        pass
+
+    def on_batch_end(self, batch, logs={}):
+        pass
+
+    def on_epoch_end(self, epoch, logs={}):
+        if (self.validation_data):
+            y_predict = self.model.predict([self.validation_data[0], self.validation_data[1]],
+                                           batch_size=self.predict_batch_size)
+            y_predict = (y_predict > 0.5).astype(int)
+            accuracy=accuracy_score(self.validation_data[2], y_predict)
+            precision=precision_score(self.validation_data[2], y_predict)
+            recall = recall_score(self.validation_data[2], y_predict)
+            f1 = f1_score(self.validation_data[2], y_predict)
+            print("precision %.3f recall %.3f f1_score %.3f accuracy %.3f "% (precision, recall,f1,accuracy))
 
 
 def get_model(embedding_matrix, nb_words):
@@ -139,6 +167,36 @@ list_tokenized_question1 = tokenizer.texts_to_sequences(question1)
 list_tokenized_question2 = tokenizer.texts_to_sequences(question2)
 X_train_q1 = pad_sequences(list_tokenized_question1, maxlen=MAX_TEXT_LENGTH)
 X_train_q2 = pad_sequences(list_tokenized_question2, maxlen=MAX_TEXT_LENGTH)
+
+inpath="test1.txt"
+test_data1 = []
+test_data2 = []
+linenos=[]
+import jieba
+jieba.add_word('花呗')
+jieba.add_word('借呗')
+jieba.add_word('余额宝')
+
+def seg(text):
+    seg_list = jieba.cut(text)
+    return " ".join(seg_list)
+
+with open(inpath, 'r') as fin:
+    for line in fin:
+        lineno, sen1, sen2 = line.strip().split('\t')
+        test_data1.append(seg(sen1))
+        test_data2.append(seg(sen2))
+        linenos.append(lineno)
+
+list_tokenized_question1 = tokenizer.texts_to_sequences(test_data1)
+list_tokenized_question2 = tokenizer.texts_to_sequences(test_data2)
+x_val_q1 = pad_sequences(list_tokenized_question1, maxlen=MAX_TEXT_LENGTH)
+x_val_q2 = pad_sequences(list_tokenized_question2, maxlen=MAX_TEXT_LENGTH)
+
+# import pickle
+# with open(word_index_path, 'wb') as fw:
+#     pickle.dumps(tokenizer,fw)
+
 nb_words = min(MAX_FEATURES, len(tokenizer.word_index))
 print("nb_words", nb_words)
 embedding_matrix1 = get_embedding_matrix(tokenizer.word_index, w2vpath, embedding_matrix_path)
@@ -158,28 +216,31 @@ for ind_tr, ind_te in skf.split(X_train_q1, y):
     y_train = y[ind_tr]
     y_val = y[ind_te]
     model = get_model(embedding_matrix1, nb_words)
-    early_stopping = EarlyStopping(monitor='val_loss', patience=5, mode='min', verbose=1)
+    early_stopping = EarlyStopping(monitor='val_f1_score_metrics', patience=5, mode='max', verbose=1)
     bst_model_path = kernel_name + '_weight_%d.h5' % count
-    model_checkpoint = ModelCheckpoint(bst_model_path, monitor='val_loss', mode='min',
+    model_checkpoint = ModelCheckpoint(bst_model_path, monitor='val_f1_score_metrics', mode='max',
                                        save_best_only=True, verbose=1, save_weights_only=True)
     hist = model.fit([x_train_q1, x_train_q2], y_train,
                      validation_data=([x_val_q1, x_val_q2], y_val),
                      epochs=6, batch_size=32, shuffle=True,
                      class_weight={0: 1.2233, 1: 0.4472},
-                     callbacks=[early_stopping, model_checkpoint])
+                     callbacks=[early_stopping, model_checkpoint,F1ScoreCallback()])
     model.load_weights(bst_model_path)
     y_predict = model.predict([x_val_q1, x_val_q2], batch_size=256, verbose=1)
+    # y_predict = model.predict([x_val_q1, x_val_q2], batch_size=256, verbose=1)
     pred_oob[ind_te] = y_predict
+    # pred_oob  += y_predict
     y_predict = (y_predict > 0.5).astype(int)
-    recall = recall_score(y_val, y_predict)
+    recall = recall_score(y, y_predict)
     print(count, "recal", recall)
-    precision = precision_score(y_val, y_predict)
+    precision = precision_score(y, y_predict)
     print(count, "precision", precision)
-    accuracy = accuracy_score(y_val, y_predict)
+    accuracy = accuracy_score(y, y_predict)
     print(count, "accuracy ", accuracy)
-    f1 = f1_score(y_val, y_predict)
+    f1 = f1_score(y, y_predict)
     print(count, "f1", f1)
     count += 1
+pred_oob/=cv_folds
 pred_oob1 = (pred_oob > 0.5).astype(int)
 recall = recall_score(y, pred_oob1)
 print("recal", recall)
