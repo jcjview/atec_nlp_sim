@@ -130,14 +130,14 @@ if __name__ == '__main__':
     pred_oob = np.zeros(shape=(len(x_val_q1), 1))
     # print pred_oob.shape
     count = 0
-    print "start to predict."
+    # print "start to predict."
     model = get_model()
     for index in range(cv_folds):
         bst_model_path = kernel_name + '_weight_%d.h5' % count
         model.load_weights(bst_model_path)
         y_predict = model.predict([x_val_q1, x_val_q2], batch_size=1024, verbose=0)
         pred_oob += y_predict
-        print "*",
+        # print "*",
         # break
         # try:
         #     y_predict = (y_predict > 0.5).astype(int)
@@ -152,14 +152,14 @@ if __name__ == '__main__':
         #     count += 1
         # except:
         #     pass
-    print "predict done.Saving output to %s"%outputpath
+    # print "predict done.Saving output to %s"%outputpath
     pred_oob /= cv_folds
     pred_oob1 = (pred_oob > 0.5).astype(int)
     fout = codecs.open(outputpath, 'w', encoding='utf-8')
     for index, la in enumerate(pred_oob1):
         lineno = linenos[index]
         fout.write(lineno + '\t%d\n' % la)
-    print "All is done."
+    # print "All is done."
             # try:
             #     recall = recall_score(y, pred_oob1)
             #     print("recal", recall)
