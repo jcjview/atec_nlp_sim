@@ -1,27 +1,21 @@
-"""
-pip install tensorflow
-pip install keras
-pip install numpy
-pip install tqdm
-
-"""
 input_file = "../input/process.csv"
-w2vpath = '../data/baike.128.truncate.glove.txt'
-embedding_matrix_path = './temp.npy'
-kernel_name="lstm"
+w2vpath = '../data/baike.128.no_truncate.glove.txt'
+embedding_matrix_path = './temp_no_truncate.npy'
+kernel_name = "CNN_mutilwin"
 import pandas as pd
 import numpy as np
 import keras
 from keras.callbacks import EarlyStopping, ModelCheckpoint, Callback
 from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
-from keras.optimizers import Adam
+
 MAX_TEXT_LENGTH = 50
 MAX_FEATURES = 10000
 embedding_dims = 128
 dr = 0.2
-
-
+cnn_filters = 64
+kernel_sizes = [2, 3, 8, 9]
 from keras import backend as K
+
 
 def f1_score_metrics(y_true, y_pred):
     def recall(y_true, y_pred):
@@ -54,22 +48,49 @@ def f1_score_metrics(y_true, y_pred):
     recall = recall(y_true, y_pred)
     return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
 
-def get_model(embedding_matrix,nb_words):
+
+def get_model(embedding_matrix, nb_words):
     input1_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
     input2_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
     words_embedding_layer = keras.layers.Embedding(MAX_FEATURES, embedding_dims,
                                                    weights=[embedding_matrix],
                                                    input_length=MAX_TEXT_LENGTH,
                                                    trainable=True)
-    seq_embedding_layer = keras.layers.LSTM(256, activation='tanh',recurrent_dropout=dr)
-    seq_embedding = lambda tensor: seq_embedding_layer(words_embedding_layer(tensor))
-    merge_layer = keras.layers.multiply([seq_embedding(input1_tensor), seq_embedding(input2_tensor)])
+    embedded_sequences1=words_embedding_layer(input1_tensor)
+    x1=[]
+    for win in kernel_sizes:
+        xi =  keras.layers.Conv1D(filters=cnn_filters,
+                    filter_length=win,
+                    padding='same',
+                    activation='relu'
+                    )(embedded_sequences1)
+        x1.append(xi)
+
+
+    x1 = keras.layers.add(x1)
+    x1 = keras.layers.GlobalMaxPooling1D()(x1)
+
+    embedded_sequences2=words_embedding_layer(input2_tensor)
+    x2 = []
+    for win in kernel_sizes:
+        xi = keras.layers.Conv1D(filters=cnn_filters,
+                                 filter_length=win,
+                                 padding='same',
+                                 activation='relu'
+                                 )(embedded_sequences2)
+        x2.append(xi)
+
+    x2 = keras.layers.add(x2)
+    x2 = keras.layers.GlobalMaxPooling1D()(x2)
+    merge_layer = keras.layers.multiply([x1, x2])
+    merge_layer = keras.layers.Dropout(dr)(merge_layer)
     dense1_layer = keras.layers.Dense(64, activation='relu')(merge_layer)
     ouput_layer = keras.layers.Dense(1, activation='sigmoid')(dense1_layer)
     model = keras.models.Model([input1_tensor, input2_tensor], ouput_layer)
-    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy",f1_score_metrics])
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy", f1_score_metrics])
     model.summary()
     return model
+
 
 from tqdm import tqdm
 import mmap
@@ -95,7 +116,7 @@ def get_embedding_matrix(word_index, Emed_path, Embed_npy):
     with open(Emed_path, encoding='utf-8') as f:
         for line in tqdm(f, total=file_line):
             values = line.split()
-            if(len(values)<embedding_dims):
+            if (len(values) < embedding_dims):
                 print(values)
                 continue
             word = ' '.join(values[:-embedding_dims])
@@ -105,14 +126,14 @@ def get_embedding_matrix(word_index, Emed_path, Embed_npy):
 
     print('Total %s word vectors.' % len(embeddings_index))
     print('Preparing embedding matrix')
-    nb_words = MAX_FEATURES#min(MAX_FEATURES, len(word_index))
+    nb_words = MAX_FEATURES  # min(MAX_FEATURES, len(word_index))
     all_embs = np.stack(embeddings_index.values())
     print(all_embs.shape)
     emb_mean, emb_std = all_embs.mean(), all_embs.std()
     embedding_matrix = np.random.normal(loc=emb_mean, scale=emb_std, size=(nb_words, embedding_dims))
 
     # embedding_matrix = np.zeros((nb_words, embedding_dims))
-    count=0
+    count = 0
     for word, i in tqdm(word_index.items()):
         if i >= MAX_FEATURES:
             continue
@@ -120,9 +141,9 @@ def get_embedding_matrix(word_index, Emed_path, Embed_npy):
         if embedding_vector is not None:
             # words not found in embedding index will be all-zeros.
             embedding_matrix[i] = embedding_vector
-            count+=1
+            count += 1
     np.save(Embed_npy, embedding_matrix)
-    print('Null word embeddings: %d' % (nb_words-count))
+    print('Null word embeddings: %d' % (nb_words - count))
     print('not Null word embeddings: %d' % count)
     print('embedding_matrix shape', embedding_matrix.shape)
     # print('Null word embeddings: %d' % np.sum(np.sum(embedding_matrix, axis=1) == 0))
@@ -144,7 +165,7 @@ list_tokenized_question2 = tokenizer.texts_to_sequences(question2)
 X_train_q1 = pad_sequences(list_tokenized_question1, maxlen=MAX_TEXT_LENGTH)
 X_train_q2 = pad_sequences(list_tokenized_question2, maxlen=MAX_TEXT_LENGTH)
 nb_words = min(MAX_FEATURES, len(tokenizer.word_index))
-print("nb_words",nb_words)
+print("nb_words", nb_words)
 embedding_matrix1 = get_embedding_matrix(tokenizer.word_index, w2vpath, embedding_matrix_path)
 seed = 20180426
 cv_folds = 10
@@ -161,14 +182,15 @@ for ind_tr, ind_te in skf.split(X_train_q1, y):
     x_val_q2 = X_train_q2[ind_te]
     y_train = y[ind_tr]
     y_val = y[ind_te]
-    model = get_model(embedding_matrix1,nb_words)
+    model = get_model(embedding_matrix1, nb_words)
     early_stopping = EarlyStopping(monitor='val_loss', patience=5, mode='min', verbose=1)
-    bst_model_path =kernel_name+'_weight_%d.h5' % count
+    bst_model_path = kernel_name + '_weight_%d.h5' % count
     model_checkpoint = ModelCheckpoint(bst_model_path, monitor='val_loss', mode='min',
                                        save_best_only=True, verbose=1, save_weights_only=True)
-    hist = model.fit([x_train_q1,x_train_q2], y_train,
-                     validation_data=([x_val_q1,x_val_q2], y_val),
-                     epochs=5, batch_size=256, shuffle=True,
+    hist = model.fit([x_train_q1, x_train_q2], y_train,
+                     validation_data=([x_val_q1, x_val_q2], y_val),
+                     epochs=20, batch_size=256, shuffle=True,
+                     class_weight={0: 1.2233, 1: 0.4472},
                      callbacks=[early_stopping, model_checkpoint])
     model.load_weights(bst_model_path)
     y_predict = model.predict([x_val_q1, x_val_q2], batch_size=256, verbose=1)
@@ -183,12 +205,12 @@ for ind_tr, ind_te in skf.split(X_train_q1, y):
     f1 = f1_score(y_val, y_predict)
     print(count, "f1", f1)
     count += 1
-pred_label = (pred_oob > 0.5).astype(int)
-recall = recall_score(y, pred_label)
+pred_oob1 = (pred_oob > 0.5).astype(int)
+recall = recall_score(y, pred_oob1)
 print("recal", recall)
-precision = precision_score(y, pred_label)
+precision = precision_score(y, pred_oob1)
 print("precision", precision)
-accuracy = accuracy_score(y, pred_label)
+accuracy = accuracy_score(y, pred_oob1)
 print("accuracy", accuracy)
-f1 = f1_score(y, pred_label)
+f1 = f1_score(y, pred_oob1)
 print("f1", f1)

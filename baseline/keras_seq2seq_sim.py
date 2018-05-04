@@ -1,28 +1,21 @@
-"""
-pip install tensorflow
-pip install keras
-pip install numpy
-pip install tqdm
+from keras.layers import Bidirectional, GRU, Dropout, Merge
 
-"""
 input_file = "../input/process.csv"
 w2vpath = '../data/baike.128.truncate.glove.txt'
 embedding_matrix_path = './temp.npy'
-kernel_name="lstm"
+kernel_name="seq2seq"
 import pandas as pd
 import numpy as np
 import keras
 from keras.callbacks import EarlyStopping, ModelCheckpoint, Callback
 from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
-from keras.optimizers import Adam
+
 MAX_TEXT_LENGTH = 50
 MAX_FEATURES = 10000
 embedding_dims = 128
 dr = 0.2
-
-
+lstm_size=64
 from keras import backend as K
-
 def f1_score_metrics(y_true, y_pred):
     def recall(y_true, y_pred):
         """Recall metric.
@@ -54,22 +47,40 @@ def f1_score_metrics(y_true, y_pred):
     recall = recall(y_true, y_pred)
     return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
 
+def exponent_neg_manhattan_distance(left, right):
+    return K.exp(-K.sum(K.abs(left - right), axis=1, keepdims=True))
+def distance(left, right):
+    return K.exp(-K.sum(K.abs(left - right), axis=1, keepdims=True))
 def get_model(embedding_matrix,nb_words):
     input1_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
     input2_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
-    words_embedding_layer = keras.layers.Embedding(MAX_FEATURES, embedding_dims,
+    embedding_layer = keras.layers.Embedding(MAX_FEATURES, embedding_dims,
                                                    weights=[embedding_matrix],
                                                    input_length=MAX_TEXT_LENGTH,
                                                    trainable=True)
-    seq_embedding_layer = keras.layers.LSTM(256, activation='tanh',recurrent_dropout=dr)
-    seq_embedding = lambda tensor: seq_embedding_layer(words_embedding_layer(tensor))
-    merge_layer = keras.layers.multiply([seq_embedding(input1_tensor), seq_embedding(input2_tensor)])
-    dense1_layer = keras.layers.Dense(64, activation='relu')(merge_layer)
-    ouput_layer = keras.layers.Dense(1, activation='sigmoid')(dense1_layer)
-    model = keras.models.Model([input1_tensor, input2_tensor], ouput_layer)
-    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy",f1_score_metrics])
+    shared_encode = Bidirectional(GRU(lstm_size, return_sequences=False))
+    embedded_sequences = embedding_layer(input1_tensor)
+    l_lstm1 = shared_encode(embedded_sequences)
+    l_lstm1 = Dropout(dr)(l_lstm1)
+
+    embedded_sequences1 = embedding_layer(input2_tensor)
+    l_lstm2 = shared_encode(embedded_sequences1)
+    l_lstm2 = Dropout(dr)(l_lstm2)
+
+    # Calculates the distance as defined by the MaLSTM model
+    malstm_distance = Merge(mode=lambda x: exponent_neg_manhattan_distance(x[0], x[1]),
+                            output_shape=lambda x: (x[0][0], 1))([l_lstm1, l_lstm2])
+
+    # dense1_layer = keras.layers.Dense(64, activation='relu')(malstm_distance)
+    # ouput_layer = keras.layers.Dense(1, activation='sigmoid')(dense1_layer)
+    model = keras.models.Model([input1_tensor, input2_tensor], [malstm_distance])
+    model.compile(loss='mean_squared_error', optimizer='adam', metrics=["accuracy",f1_score_metrics])
     model.summary()
     return model
+
+
+
+
 
 from tqdm import tqdm
 import mmap
@@ -95,11 +106,11 @@ def get_embedding_matrix(word_index, Emed_path, Embed_npy):
     with open(Emed_path, encoding='utf-8') as f:
         for line in tqdm(f, total=file_line):
             values = line.split()
-            if(len(values)<embedding_dims):
+            if(len(values)<128):
                 print(values)
                 continue
-            word = ' '.join(values[:-embedding_dims])
-            coefs = np.asarray(values[-embedding_dims:], dtype='float32')
+            word = ' '.join(values[:-128])
+            coefs = np.asarray(values[-128:], dtype='float32')
             embeddings_index[word] = coefs
     f.close()
 
@@ -162,13 +173,14 @@ for ind_tr, ind_te in skf.split(X_train_q1, y):
     y_train = y[ind_tr]
     y_val = y[ind_te]
     model = get_model(embedding_matrix1,nb_words)
-    early_stopping = EarlyStopping(monitor='val_loss', patience=5, mode='min', verbose=1)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=5, mode='min')
     bst_model_path =kernel_name+'_weight_%d.h5' % count
     model_checkpoint = ModelCheckpoint(bst_model_path, monitor='val_loss', mode='min',
                                        save_best_only=True, verbose=1, save_weights_only=True)
     hist = model.fit([x_train_q1,x_train_q2], y_train,
                      validation_data=([x_val_q1,x_val_q2], y_val),
-                     epochs=5, batch_size=256, shuffle=True,
+                     epochs=15, batch_size=32, shuffle=True,
+                     class_weight={0: 1.2233, 1: 0.4472},
                      callbacks=[early_stopping, model_checkpoint])
     model.load_weights(bst_model_path)
     y_predict = model.predict([x_val_q1, x_val_q2], batch_size=256, verbose=1)
@@ -183,12 +195,12 @@ for ind_tr, ind_te in skf.split(X_train_q1, y):
     f1 = f1_score(y_val, y_predict)
     print(count, "f1", f1)
     count += 1
-pred_label = (pred_oob > 0.5).astype(int)
-recall = recall_score(y, pred_label)
+pred_oob1 = (pred_oob > 0.5).astype(int)
+recall = recall_score(y, pred_oob1)
 print("recal", recall)
-precision = precision_score(y, pred_label)
+precision = precision_score(y, pred_oob1)
 print("precision", precision)
-accuracy = accuracy_score(y, pred_label)
+accuracy = accuracy_score(y, pred_oob1)
 print("accuracy", accuracy)
-f1 = f1_score(y, pred_label)
+f1 = f1_score(y, pred_oob1)
 print("f1", f1)

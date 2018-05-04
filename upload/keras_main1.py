@@ -45,11 +45,11 @@ def seg(text):
     return " ".join(seg_list)
 
 
-def get_model(embedding_matrix, nb_words):
+def get_model():
     input1_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
     input2_tensor = keras.layers.Input(shape=(MAX_TEXT_LENGTH,))
     words_embedding_layer = keras.layers.Embedding(MAX_FEATURES, embedding_dims,
-                                                   weights=[embedding_matrix],
+                                                   # weights=[embedding_matrix],
                                                    input_length=MAX_TEXT_LENGTH,
                                                    trainable=True)
     seq_embedding_layer = keras.layers.Bidirectional(keras.layers.GRU(256, recurrent_dropout=dr))
@@ -59,8 +59,8 @@ def get_model(embedding_matrix, nb_words):
     dense1_layer = keras.layers.Dense(64, activation='relu')(merge_layer)
     ouput_layer = keras.layers.Dense(1, activation='sigmoid')(dense1_layer)
     model = keras.models.Model([input1_tensor, input2_tensor], ouput_layer)
-    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy"])
-    model.summary()
+    # model.compile(loss='binary_crossentropy', optimizer='adam', metrics=["accuracy"])
+    # model.summary()
     return model
 
 
@@ -119,7 +119,7 @@ if __name__ == '__main__':
 
     nb_words = min(MAX_FEATURES, len(tokenizer.word_index))
     # print("nb_words", nb_words)
-    embedding_matrix1 = np.load(embedding_matrix_path)
+    # embedding_matrix1 = np.load(embedding_matrix_path)
     seed = 20180426
     cv_folds = 10
     # from sklearn.model_selection import StratifiedKFold
@@ -130,15 +130,14 @@ if __name__ == '__main__':
     pred_oob = np.zeros(shape=(len(x_val_q1), 1))
     # print pred_oob.shape
     count = 0
+    print "start to predict."
+    model = get_model()
     for index in range(cv_folds):
-        model = get_model(embedding_matrix1, nb_words)
-        early_stopping = EarlyStopping(monitor='val_f1_score_metrics', patience=5, mode='max', verbose=1)
         bst_model_path = kernel_name + '_weight_%d.h5' % count
-        model_checkpoint = ModelCheckpoint(bst_model_path, monitor='val_f1_score_metrics', mode='max',
-                                           save_best_only=True, verbose=1, save_weights_only=True)
         model.load_weights(bst_model_path)
         y_predict = model.predict([x_val_q1, x_val_q2], batch_size=1024, verbose=0)
         pred_oob += y_predict
+        print "*",
         # break
         # try:
         #     y_predict = (y_predict > 0.5).astype(int)
@@ -153,13 +152,14 @@ if __name__ == '__main__':
         #     count += 1
         # except:
         #     pass
+    print "predict done.Saving output to %s"%outputpath
     pred_oob /= cv_folds
     pred_oob1 = (pred_oob > 0.5).astype(int)
     fout = codecs.open(outputpath, 'w', encoding='utf-8')
     for index, la in enumerate(pred_oob1):
         lineno = linenos[index]
         fout.write(lineno + '\t%d\n' % la)
-
+    print "All is done."
             # try:
             #     recall = recall_score(y, pred_oob1)
             #     print("recal", recall)
